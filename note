@@ -43,3 +43,65 @@ Eureka
         在自我保护模式中，EurekaServer会保护服务注册表中的信息，不再注销任何服务实例。
         它的设计哲学就是宁可保留错误的服务注册信息，也不盲目注销任何可能健康的服务实例。
         自我保护模式是一种应对网络异常的安全保护措施。他的架构哲学时宁可同时保留所有微服务（健康的微服务和不健康的微服务都会保留）也不盲目注销任何健康的微服务。使用自我保护模式，可以让Eureka集群更加的健壮、稳定
+Zookeeper：对不起，跳过了。。。
+Consul:挺简单的，1.启动客户端consul agent -dev 2.写依赖 3.配yml 4.启动类，controller。完活
+三者比较：
+    CAP:关注粒度是数据，而不是整体系统设计的策略
+        C:Consistency（强一致性）
+        A:Availability（高可用性）
+        P:Partition tolerance（分区容错性）
+    分布式必须兼顾P
+    AP（Eureka）
+    CP:(zookeeper/consul）
+    如果某个服务宕机，Eureka不会立刻剔除该服务，zc则会立刻剔除该服务
+Ribbon 负载均衡服务调用
+Spring Cloud Ribbon是基于Netflix Ribbon实现的一套客户端 负载均衡工具
+    Ribbon是Netflix发布的开源项目，主要功能是提供客户端的软件负载均衡算法和服务调用。Ribbon客户端组件提供一些列完善的配置项；如连接超时、重试等。
+    简单来说，就是在配置文件中列出LoadBalancer后面所有的及其，Ribbon会自动的帮助你基于耨中规则（如简单轮询，随机连接等）取连接这些机器。
+
+    LB（负载均衡）分为1.集中式LB 2.进程内LB
+        负载均衡是将用户的请求平摊的分配到多个服务商，从而达到系统的HA（高可用）。
+        常见的负载均衡有软件Nginx，LVS，硬件F5等
+        1.集中式LB
+            即在服务的消费方和提供方之间使用独立的LB设施（可以是硬件也可以是软件，如Nginx）由该设施负责把访问请求通过某种策略转发至服务的提供方
+        2.进程内LB
+            将LB逻辑集成到消费方，消费方从服务注册中心获知有哪些地址可用，然后自己再从这些地址中选择出一个适合的服务器。
+            Ribbon就属于进程内LB，她只是一个类库，集成于消费方进程，消费方通过它来获取到服务提供方的地址。
+
+    Ribbon本地负载均衡客户端和Nginx服务端负载均衡区别
+        Nginx是服务器负载均衡，客户端所有请求都会交给Nginx，然后由Nginx实现转发请求。即负载均衡由服务端实现的。
+        Ribbon本地负载均衡，再调用微服务接口时，会在注册中心上获取注册信息服务列表，之后缓存到JVM本地，从而在本地实现RPC远程服务调用技术。
+    Ribbon其实就是一个软负载均衡的客户端组件，它可以和其他所需请求的客户端结合使用，
+    Ribbon在工作时分成两步：
+        1.选择EurekaServer，他优先选择在同一个区域内负载较少的server。
+        2.再根据用户指定的策略，再从server取到的服务注册列表选择一个地址。
+    其实Ribbon就是负载均衡 + RestTemplate
+    RestTemplate的两个常用方法
+        1.post/getForObject(url, Class<T>)
+            返回一个json串
+        2.post/getForEntity(url, Class<T>)
+            返回一个Response对象，包含更多的信息
+        推荐使用第一种方法
+    Ribbon核心组件IRule自带负载均衡算法
+        1.com.netflix.loadbalancer.RoundRobinRule   --轮询
+        2.com.netflix.loadbalancer.RandomRule       --随机
+        3.com.netflix.loadbalancer.RetryRule        --先按照RoundRobinRule的策略获取服务，如果获取服务失败则在指定时间内会进行重试，获取可用的服务
+        4.WeightedResponseTimeRule                  --对RoundRobinRule的扩展，响应速度越快的实例选择权重越大，越容易被选择
+        5.BestAvailableRule                         --会先过滤掉由于多次访问故障而处于断路器跳闸状态的服务，然后选择一个并发量最小的服务
+        6.AvailabilityFilteringRule                 --先过滤掉故障实例，再选择并发较小的实例
+        7.ZoneAvoidanceRule                         --默认规则，复合判断server所在区域的性能和server的可用性选择服务器
+    更改负载均衡算法，
+        这个自定义配置类不能放在@ComponentScan所扫描的当前包下以及子包下，否则我们自定义的这个配置类就会被所有的Ribbon客户端所共享，达不到特殊定制的目的了。
+        由于@SpringBootApplication注解下就带着@ComponentScan 这个注解，因此这个配置类不能与主类同包
+
+        因此需要新建包，新建配置类，
+            @Configuration
+            public class MyselfRule {
+                @Bean
+                public IRule myRule() {
+                    //此处返回需要自定义的算法
+                    return new RandomRule();
+                }
+            }
+            最后在主启动类上添加@RibbonClient(name = "ServiceName", configuration = MyselfRule.class)//name是本服务要访问的服务名称，configuration是自定义配置类
+    负载均衡算法：rest接口第几次请求数 % 服务器集群总数量 = 实际调用服务器位置下标，每次服务器重启后rest接口计数从1开始。
